@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>A.C.Lib — viewer 3D</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; font: 12px "Inter", system-ui; }
+    /* backdrops studio (le canvas WebGL est transparent au-dessus) */
+    body { background: radial-gradient(120% 90% at 50% 18%, #34373d 0%, #1c1d20 55%, #101113 100%); }
+    body.bg-dark   { background: #0e0f11; }
+    body.bg-light  { background: radial-gradient(120% 90% at 50% 20%, #e9eaec 0%, #c7c9cd 60%, #a9acb1 100%); }
+    body.bg-studio { background: radial-gradient(120% 90% at 50% 18%, #34373d 0%, #1c1d20 55%, #101113 100%); }
+    #c { width: 100%; height: 100%; display: block; }
+    #msg { position: absolute; top: 50%; left: 0; right: 0; text-align: center;
+           color: #6B7178; font: 13px "Inter", system-ui; transform: translateY(-50%); }
+    /* outliner : liste des objets du modèle + œil de visibilité */
+    #outliner { position: absolute; top: 14px; right: 14px; width: 210px; max-height: 70%;
+                background: rgba(16,17,19,0.86); border: 1px solid #2A2E33; border-radius: 10px;
+                color: #F5F5F2; overflow: hidden; display: none; backdrop-filter: blur(3px); }
+    #outliner.show { display: block; }
+    #ol-head { display: flex; align-items: center; justify-content: space-between;
+               padding: 8px 10px; border-bottom: 1px solid #1F2225; cursor: pointer;
+               color: #A7ADB5; font-weight: 600; letter-spacing: .4px; font-size: 11px; }
+    #ol-head .chev { transition: transform .15s; }
+    #outliner.collapsed #ol-body { display: none; }
+    #outliner.collapsed .chev { transform: rotate(-90deg); }
+    #ol-body { overflow-y: auto; max-height: 320px; padding: 4px; }
+    .ol-row { display: flex; align-items: center; gap: 8px; padding: 5px 7px; border-radius: 6px;
+              cursor: default; }
+    .ol-row:hover { background: #1C1D1F; }
+    .ol-row.sel { background: rgba(111,227,160,0.14); box-shadow: inset 2px 0 0 #6FE3A0; }
+    .ol-row .name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #D9DCE0; cursor: pointer; }
+    .ol-row.sel .name { color: #6FE3A0; }
+    .ol-row.off .name { color: #6B7178; }
+    .eye { width: 26px; height: 22px; display: flex; align-items: center; justify-content: center;
+           border-radius: 5px; cursor: pointer; color: #A7ADB5; }
+    .eye:hover { background: #2A2E33; color: #F5F5F2; }
+    .eye svg { width: 16px; height: 16px; stroke: currentColor; fill: none;
+               stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+    /* panneau de réglages rendu (bas-droite) */
+    #rc { position: absolute; right: 14px; bottom: 14px; width: 220px;
+          background: rgba(16,17,19,0.86); border: 1px solid #2A2E33; border-radius: 10px;
+          color: #F5F5F2; backdrop-filter: blur(3px); }
+    #rc-head { display: flex; align-items: center; justify-content: space-between; cursor: pointer;
+               padding: 8px 10px; color: #A7ADB5; font-weight: 600; font-size: 11px; letter-spacing: .4px; }
+    #rc.collapsed #rc-body { display: none; }
+    #rc.collapsed .chev { transform: rotate(-90deg); }
+    #rc-body { padding: 6px 12px 12px; }
+    .rc-row { margin: 9px 0; }
+    .rc-row label { display: block; color: #A7ADB5; margin-bottom: 5px; font-size: 11px; }
+    .rc-row input[type=range] { width: 100%; accent-color: #6FE3A0; }
+    .rc-seg { display: flex; gap: 4px; }
+    .rc-seg button { flex: 1; background: #16181B; color: #A7ADB5; border: 1px solid #2A2E33;
+                     border-radius: 6px; padding: 5px 0; font-size: 11px; cursor: pointer; }
+    .rc-seg button.active { background: #F5F5F2; color: #0B0C0E; border-color: #F5F5F2; font-weight: 600; }
+    .rc-check { display: flex; align-items: center; gap: 8px; color: #D9DCE0; cursor: pointer; }
+  </style>
+  <!-- three.js VENDORISÉ en local (offline, aucune connexion requise). -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./vendor/three/build/three.module.js",
+      "three/addons/": "./vendor/three/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="msg">Aucun modèle chargé</div>
+
+  <div id="outliner">
+    <div id="ol-head"><span id="ol-title">OBJETS</span><span class="chev">▾</span></div>
+    <div id="ol-body"></div>
+  </div>
+
+  <div id="rc">
+    <div id="rc-head"><span>RENDU</span><span class="chev">▾</span></div>
+    <div id="rc-body">
+      <div class="rc-row">
+        <label>Exposition <span id="rc-exp-v">1.0</span></label>
+        <input id="rc-exp" type="range" min="0.2" max="2.5" step="0.05" value="1.0" />
+      </div>
+      <div class="rc-row">
+        <label>Reflets / environnement <span id="rc-env-v">1.0</span></label>
+        <input id="rc-env" type="range" min="0" max="3" step="0.05" value="1.0" />
+      </div>
+      <div class="rc-row">
+        <label>Lumière clé <span id="rc-key-v">1.4</span></label>
+        <input id="rc-key" type="range" min="0" max="4" step="0.1" value="1.4" />
+      </div>
+      <div class="rc-row">
+        <label>Fond</label>
+        <div class="rc-seg" id="rc-bg">
+          <button data-bg="bg-studio" class="active">Studio</button>
+          <button data-bg="bg-dark">Sombre</button>
+          <button data-bg="bg-light">Clair</button>
+        </div>
+      </div>
+      <div class="rc-row">
+        <label class="rc-check"><input id="rc-xray" type="checkbox" /> Rayon X (voir au travers)</label>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+    const canvas = document.getElementById('c');
+    const msg = document.getElementById('msg');
+
+    // canvas transparent : le backdrop dégradé (CSS) se voit derrière
+    // preserveDrawingBuffer : nécessaire pour capturer une miniature (toDataURL)
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setClearAlpha(0);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;   // rendu filmique
+    renderer.toneMappingExposure = 1.0;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    const scene = new THREE.Scene();
+    scene.background = null;  // fond géré par le dégradé CSS
+
+    // --- environnement studio (IBL procédural, offline, sans fichier HDR) ---
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const envMap = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environment = envMap;
+
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 100000);
+    camera.position.set(0, 0, 300);
+
+    const controls = new OrbitControls(camera, canvas);
+    controls.enableDamping = true;
+
+    // lumière clé douce pour le relief (le reste vient de l'environnement)
+    const key = new THREE.DirectionalLight(0xffffff, 1.4);
+    key.position.set(1, 1.4, 1.2);
+    scene.add(key);
+    const fill = new THREE.DirectionalLight(0xdde6ff, 0.4);
+    fill.position.set(-1, 0.3, -0.8);
+    scene.add(fill);
+
+    const loader = new GLTFLoader();
+    let current = null;
+    let envIntensity = 1.0;
+
+    function resize() {
+      const w = canvas.clientWidth, h = canvas.clientHeight;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize);
+
+    function frame(obj) {
+      const box = new THREE.Box3().setFromObject(obj);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+      obj.position.sub(center);                       // recentre
+      const radius = Math.max(size.x, size.y, size.z) || 1;
+      // vue 3/4 produit (plus flatteuse qu'une vue de face)
+      camera.position.set(radius * 1.25, radius * 0.85, radius * 1.9);
+      camera.near = radius / 100; camera.far = radius * 100;
+      camera.updateProjectionMatrix();
+      controls.target.set(0, 0, 0); controls.update();
+    }
+
+    // Charge un modèle. Appelé depuis Python via runJavaScript(`loadModel("file:///…")`).
+    // libère géométries/matériaux d'un objet retiré (évite fuite mémoire)
+    function disposeObj(obj) {
+      obj.traverse((o) => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material) {
+          const mats = Array.isArray(o.material) ? o.material : [o.material];
+          mats.forEach((m) => { if (m.map) m.map.dispose(); m.dispose(); });
+        }
+      });
+    }
+
+    function clearCurrent() {
+      if (current) { scene.remove(current); disposeObj(current); current = null; }
+      selectedMesh = null;
+      buildOutliner(null);
+    }
+
+    // --- Outliner : liste les objets principaux + œil de visibilité ---
+    const outliner = document.getElementById('outliner');
+    const olBody = document.getElementById('ol-body');
+    const olTitle = document.getElementById('ol-title');
+    document.getElementById('ol-head').onclick = () => outliner.classList.toggle('collapsed');
+
+    const EYE_ON = '<svg viewBox="0 0 24 24"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>';
+    const EYE_OFF = '<svg viewBox="0 0 24 24"><path d="M9.9 4.2A11 11 0 0 1 12 4c7 0 11 8 11 8a18 18 0 0 1-3 4M6.6 6.6A18 18 0 0 0 1 12s4 8 11 8a11 11 0 0 0 4-.7"/><line x1="2" y1="2" x2="22" y2="22"/></svg>';
+
+    function roots(obj) {
+      // objets principaux : enfants du glTF ; si un seul groupe wrapper, on prend ses enfants
+      let r = obj.children.slice();
+      if (r.length === 1 && r[0].children && r[0].children.length > 1) r = r[0].children.slice();
+      return r;
+    }
+
+    function buildOutliner(obj) {
+      olBody.innerHTML = '';
+      if (!obj) { outliner.classList.remove('show'); return; }
+      // liste TOUS les meshes du modèle (peu importe la profondeur de hiérarchie)
+      const list = [];
+      obj.traverse((o) => { if (o.isMesh) list.push(o); });
+      if (list.length === 0) { outliner.classList.remove('show'); return; }
+      olTitle.textContent = `OBJETS (${list.length})`;
+      list.forEach((o, i) => {
+        const row = document.createElement('div'); row.className = 'ol-row';
+        const eye = document.createElement('div'); eye.className = 'eye'; eye.innerHTML = EYE_ON;
+        const name = document.createElement('div'); name.className = 'name';
+        const nm = (o.name && o.name.trim()) || (o.parent && o.parent.name) || '';
+        name.textContent = nm ? nm : `Objet ${i + 1}`;
+        eye.onclick = (ev) => {
+          ev.stopPropagation();
+          o.visible = !o.visible;
+          eye.innerHTML = o.visible ? EYE_ON : EYE_OFF;
+          row.classList.toggle('off', !o.visible);
+        };
+        // clic sur la ligne = sélection de la pièce (surlignée en accent)
+        name.onclick = () => selectMesh(o, row);
+        row._mesh = o;
+        row.appendChild(eye); row.appendChild(name);
+        olBody.appendChild(row);
+      });
+      outliner.classList.remove('collapsed');
+      outliner.classList.add('show');
+    }
+
+    // --- Sélection d'une pièce : surligne le mesh (emissive accent) + la ligne ---
+    const SEL_COLOR = 0x6FE3A0;
+    let selectedMesh = null;
+
+    function setEmissive(mesh, on) {
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      mats.forEach((m) => {
+        if (!m || !m.emissive) return;
+        m.userData._sel = on;
+        m.emissive.set(on ? SEL_COLOR : 0x000000);
+        if ('emissiveIntensity' in m) m.emissiveIntensity = on ? 0.45 : 1.0;
+        m.needsUpdate = true;
+      });
+    }
+
+    function selectMesh(mesh, row) {
+      const same = selectedMesh === mesh;
+      // désélectionne l'ancienne pièce + ligne
+      if (selectedMesh) setEmissive(selectedMesh, false);
+      olBody.querySelectorAll('.ol-row.sel').forEach((r) => r.classList.remove('sel'));
+      if (same) { selectedMesh = null; return; }   // re-clic = désélection
+      selectedMesh = mesh;
+      setEmissive(mesh, true);
+      row.classList.add('sel');
+    }
+
+    // --- Réglages de rendu (exposition, reflets, lumière, fond, rayon X) ---
+    let xray = false;
+
+    function eachMat(obj, fn) {
+      if (!obj) return;
+      obj.traverse((o) => {
+        if (o.isMesh && o.material) {
+          const mats = Array.isArray(o.material) ? o.material : [o.material];
+          mats.forEach(fn);
+        }
+      });
+    }
+
+    function captureOriginals(obj) {
+      eachMat(obj, (m) => {
+        m.userData._origOpacity = m.opacity;
+        m.userData._origTransparent = m.transparent;
+      });
+    }
+
+    function applyMatSettings(obj) {
+      eachMat(obj, (m) => {
+        // --- rendu uniforme : blanc brillant pour TOUS les glb ---
+        // (les modèles importés ont des matériaux hétérogènes — noir, blanc,
+        //  texturés — on impose un aspect « maquette » blanc nacré cohérent).
+        if (m.color) m.color.set(0xffffff);
+        if (m.map) m.map = null;                       // retire les textures
+        if ('metalness' in m) m.metalness = 0.0;
+        if ('roughness' in m) m.roughness = 0.28;       // brillant mais pas miroir
+        if (m.emissive && !m.userData._sel) m.emissive.set(0x000000);
+        if ('envMapIntensity' in m) m.envMapIntensity = envIntensity;
+        m.side = THREE.DoubleSide;          // affiche les faces même si normales inversées
+        if (xray) {
+          m.transparent = true; m.opacity = 0.30; m.depthWrite = false;
+        } else {
+          m.transparent = m.userData._origTransparent || false;
+          m.opacity = (m.userData._origOpacity !== undefined) ? m.userData._origOpacity : 1;
+          m.depthWrite = true;
+        }
+        m.needsUpdate = true;
+      });
+    }
+
+    const $id = (id) => document.getElementById(id);
+    $id('rc-head').onclick = () => $id('rc').classList.toggle('collapsed');
+    $id('rc-exp').oninput = (e) => {
+      renderer.toneMappingExposure = parseFloat(e.target.value);
+      $id('rc-exp-v').textContent = parseFloat(e.target.value).toFixed(2);
+    };
+    $id('rc-env').oninput = (e) => {
+      envIntensity = parseFloat(e.target.value);
+      $id('rc-env-v').textContent = envIntensity.toFixed(2);
+      applyMatSettings(current);
+    };
+    $id('rc-key').oninput = (e) => {
+      const v = parseFloat(e.target.value);
+      key.intensity = v; fill.intensity = v * 0.3;
+      $id('rc-key-v').textContent = v.toFixed(1);
+    };
+    $id('rc-bg').querySelectorAll('button').forEach((b) => {
+      b.onclick = () => {
+        document.body.className = b.dataset.bg;
+        $id('rc-bg').querySelectorAll('button').forEach((x) => x.classList.remove('active'));
+        b.classList.add('active');
+      };
+    });
+    $id('rc-xray').onchange = (e) => { xray = e.target.checked; applyMatSettings(current); };
+
+    // jeton de génération : le chargement glTF est asynchrone ; si on change de
+    // modèle avant la fin, on JETTE le résultat périmé (sinon ils s'accumulent).
+    let loadId = 0;
+
+    window.loadModel = function (url) {
+      loadId += 1;
+      const myId = loadId;
+      clearCurrent();                       // retire immédiatement l'ancien
+      if (!url) { msg.style.display = 'block'; msg.textContent = 'Aucun modèle chargé'; window.__lastLoad = 'none'; return; }
+      msg.style.display = 'block'; msg.textContent = 'Chargement…';
+      loader.load(url,
+        (gltf) => {
+          if (myId !== loadId) { disposeObj(gltf.scene); return; }  // périmé : on jette
+          clearCurrent();                   // au cas où
+          current = gltf.scene; scene.add(current); frame(current);
+          captureOriginals(current);
+          applyMatSettings(current);
+          buildOutliner(current);
+          msg.style.display = 'none'; window.__lastLoad = 'ok';
+        },
+        undefined,
+        (err) => {
+          if (myId !== loadId) return;
+          msg.style.display = 'block'; msg.textContent = 'Erreur de chargement';
+          window.__lastLoad = 'err'; console.error(err);
+        }
+      );
+    };
+
+    // diagnostic : nombre de modèles présents dans la scène (hors lumières)
+    window.__modelsInScene = () => scene.children.filter((o) => o.isLight !== true).length;
+
+    // capture une miniature PNG (dataURL) — force un rendu juste avant
+    window.snapshot = function () {
+      renderer.render(scene, camera);
+      return renderer.domElement.toDataURL('image/png');
+    };
+
+    // au démarrage : modèle passé dans le hash (#file:///…)
+    if (location.hash.length > 1) window.loadModel(decodeURIComponent(location.hash.slice(1)));
+
+    resize();
+    (function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    })();
+  </script>
+</body>
+</html>

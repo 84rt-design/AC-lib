@@ -1,0 +1,21 @@
+# A.C.Lib — dépendances communes (Manager + Viewer)
+# Python 3.12+
+
+# UI + viewer 3D
+PySide6>=6.7
+
+# Base de fiches
+SQLAlchemy>=2.0
+
+# Conversion mesh (FBX/OBJ -> glTF, bbox, polycount)
+trimesh>=4.4
+pygltflib>=1.16
+numpy>=1.26
+Pillow>=10.3            # vignettes
+
+# Indexeur (watch dossiers)
+watchdog>=4.0
+
+# --- dépendances Manager seulement (conversion lourde) ---
+# pythonocc-core : STEP -> installer via conda (pas pip), voir README
+# c4dpy          : fourni par l'install Cinema 4D (Maxon), pas un package pip

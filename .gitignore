@@ -1,0 +1,23 @@
+# venv / Python
+.venv/
+__pycache__/
+*.pyc
+
+# builds PyInstaller
+build/
+dist/
+*.spec
+build_log*.txt
+
+# icônes générées
+aclib/ui/aclib.ico
+aclib/ui/aclib.icns
+
+# bibliothèque locale / données
+data/
+*.db
+previews/
+
+# OS
+.DS_Store
+Thumbs.db
