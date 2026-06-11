@@ -5,6 +5,8 @@ name: Build macOS (Viewer + Manager)
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     tags:
       - "v*"
 
