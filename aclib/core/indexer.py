@@ -35,11 +35,57 @@ _PREVIEW_PRIORITY = (".fbx", ".glb", ".gltf", ".obj", ".ply", ".stl", ".off", ".
 ProgressCb = Callable[[str, int, int], None]  # (message, courant, total)
 
 
+def _is_valid_obj(p: Path) -> bool:
+    """Distingue un OBJ Wavefront (maillage 3D, texte ASCII) d'un .obj
+    compilateur (objet COFF binaire C/C++, ex. build Qt). Évite d'indexer des
+    artefacts de compilation qui partagent l'extension .obj."""
+    try:
+        chunk = p.read_bytes()[:8192]
+    except OSError:
+        return False
+    if b"\x00" in chunk:  # octet nul = binaire -> objet compilateur, pas Wavefront
+        return False
+    text = chunk.decode("ascii", "ignore").lower()
+    markers = ("\nv ", "\nf ", "\nvn ", "\nvt ", "\no ", "\ng ", "mtllib", "usemtl")
+    return text.startswith(("v ", "#", "o ", "g ")) or any(m in text for m in markers)
+
+
+def _accept(p: Path) -> bool:
+    """Le fichier est-il un modèle 3D source indexable ?"""
+    ext = p.suffix.lower()
+    if ext not in config.MODEL_EXTENSIONS:
+        return False
+    if ext == ".obj":
+        return _is_valid_obj(p)
+    return True
+
+
+def _purge_invalid(session) -> int:
+    """Supprime les fiches dont le fichier source est JOIGNABLE mais invalide
+    (ex. .obj compilateur indexé par erreur). Ne touche jamais une fiche dont
+    le fichier est hors-ligne (NAS non monté) -> aucune suppression accidentelle.
+    """
+    removed = 0
+    for a in session.query(Asset).all():
+        src = a.source_file()
+        if src is None:
+            continue
+        p = paths.to_abs(src.relpath)
+        try:
+            reachable = p.exists()
+        except OSError:
+            reachable = False
+        if reachable and not _accept(p):
+            session.delete(a)
+            removed += 1
+    return removed
+
+
 def _scan(folder: Path) -> dict[tuple[str, str], list[Path]]:
     """Regroupe les fichiers 3D par (dossier, stem)."""
     groups: dict[tuple[str, str], list[Path]] = defaultdict(list)
     for p in folder.rglob("*"):
-        if p.is_file() and p.suffix.lower() in config.MODEL_EXTENSIONS:
+        if p.is_file() and _accept(p):
             groups[(str(p.parent), p.stem)].append(p)
     return groups
 
@@ -56,7 +102,7 @@ def _groups_from_files(files: Iterable[Path]) -> dict[tuple[str, str], list[Path
     """Regroupe une liste de fichiers explicites par (dossier, stem)."""
     groups: dict[tuple[str, str], list[Path]] = defaultdict(list)
     for p in files:
-        if p.is_file() and p.suffix.lower() in config.MODEL_EXTENSIONS:
+        if p.is_file() and _accept(p):
             groups[(str(p.parent), p.stem)].append(p)
     return groups
 
@@ -107,9 +153,10 @@ def _process_groups(
     force: bool = False,
 ) -> dict[str, int]:
     total = len(groups)
-    stats = {"new": 0, "updated": 0, "previews": 0, "errors": 0}
+    stats = {"new": 0, "updated": 0, "previews": 0, "errors": 0, "removed": 0}
 
     with get_session() as session:
+        stats["removed"] = _purge_invalid(session)
         for i, ((_dir, stem), files) in enumerate(sorted(groups.items()), start=1):
             source = _pick(files, _SOURCE_PRIORITY)
             src_rel = paths.to_relpath(source)
