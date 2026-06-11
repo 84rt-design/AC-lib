@@ -160,13 +160,25 @@ def main() -> int:
         if demo:
             seed_demo(app_dir)
         write_readme(app_dir, f"{name}{suffix}", name)
-        # macOS --windowed produit un bundle name.app ; on le zippe s'il existe.
+        zip_path = DIST / f"{name}_portable.zip"
         mac_app = DIST / f"{name}.app"
-        to_zip = mac_app if (IS_MAC and mac_app.exists()) else app_dir
-        zip_base = DIST / f"{name}_portable"
-        print(f"=== Zip -> {zip_base}.zip ===")
-        shutil.make_archive(str(zip_base), "zip", str(to_zip))
-        print(f"OK : {to_zip}")
+        if IS_MAC and mac_app.exists():
+            # IMPORTANT : un .app contient des symlinks + bits exécutables.
+            # shutil/zipfile les PERD -> bundle cassé (Terminal/crash au lancement).
+            # ditto préserve la structure du bundle.
+            print(f"=== ditto -> {zip_path} ===")
+            if zip_path.exists():
+                zip_path.unlink()
+            subprocess.run(
+                ["ditto", "-c", "-k", "--sequesterRsrc", "--keepParent",
+                 str(mac_app), str(zip_path)],
+                check=True,
+            )
+            print(f"OK : {mac_app}")
+        else:
+            print(f"=== Zip -> {zip_path} ===")
+            shutil.make_archive(str(DIST / f'{name}_portable'), "zip", str(app_dir))
+            print(f"OK : {app_dir}")
 
     print("\nBUILD PORTABLE TERMINÉ")
     return 0
