@@ -32,7 +32,14 @@ def _make_engine() -> Engine:
         def _pragma(dbapi_conn, _rec):  # pragma: no cover
             cur = dbapi_conn.cursor()
             cur.execute("PRAGMA foreign_keys=ON")
-            cur.execute("PRAGMA journal_mode=WAL")  # concurrence lecture/écriture
+            # WAL est INCOMPATIBLE avec un partage réseau (SMB/NAS) : il exige
+            # mémoire partagée + verrous POSIX absents du réseau -> "database is
+            # locked" / base vue vide depuis un autre poste (Mac lisant la base
+            # serveur ecrite par le Manager PC). La base A.C.Lib vit sur le NAS
+            # et est partagée Manager(PC) <-> Viewer(Mac) : on force donc le
+            # journal DELETE (rollback classique, compatible reseau).
+            cur.execute("PRAGMA journal_mode=DELETE")
+            cur.execute("PRAGMA busy_timeout=5000")  # tolère un lock transitoire SMB
             cur.close()
 
     return engine
