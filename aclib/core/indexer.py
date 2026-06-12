@@ -53,31 +53,38 @@ def _is_valid_obj(p: Path) -> bool:
 
 
 def _accept(p: Path) -> bool:
-    """Le fichier est-il un modèle 3D source indexable ?"""
-    ext = p.suffix.lower()
-    if ext not in config.MODEL_EXTENSIONS:
-        return False
-    if ext == ".obj":
-        return _is_valid_obj(p)
-    return True
+    """Filtre RAPIDE du scan : extension seule, AUCUNE lecture (perf réseau).
+    La validation du contenu .obj est faite plus tard, uniquement sur le
+    fichier choisi comme SOURCE (cf. _source_ok), pas sur tout l'arbre.
+    """
+    return p.suffix.lower() in config.MODEL_EXTENSIONS
+
+
+def _source_ok(source: Path) -> bool:
+    """Le fichier SOURCE d'un volume est-il valide ? (lit seulement si .obj)
+    Un .obj compilateur (COFF binaire) est rejeté ; tout le reste passe."""
+    if source.suffix.lower() != ".obj":
+        return True
+    return _is_valid_obj(source)
 
 
 def _purge_invalid(session) -> int:
-    """Supprime les fiches dont le fichier source est JOIGNABLE mais invalide
-    (ex. .obj compilateur indexé par erreur). Ne touche jamais une fiche dont
-    le fichier est hors-ligne (NAS non monté) -> aucune suppression accidentelle.
+    """Supprime les fiches dont le fichier source .obj est JOIGNABLE mais
+    invalide (objet compilateur indexé par erreur). Ne lit que les .obj et ne
+    touche jamais une fiche hors-ligne (NAS non monté) -> zéro suppression
+    accidentelle, coût réseau minimal.
     """
     removed = 0
     for a in session.query(Asset).all():
         src = a.source_file()
-        if src is None:
-            continue
+        if src is None or not src.relpath.lower().endswith(".obj"):
+            continue  # seuls les .obj peuvent être des objets compilateur
         p = paths.to_abs(src.relpath)
         try:
             reachable = p.exists()
         except OSError:
             reachable = False
-        if reachable and not _accept(p):
+        if reachable and not _is_valid_obj(p):
             session.delete(a)
             removed += 1
     return removed
@@ -161,6 +168,8 @@ def _process_groups(
         stats["removed"] = _purge_invalid(session)
         for i, ((_dir, stem), files) in enumerate(sorted(groups.items()), start=1):
             source = _pick(files, _SOURCE_PRIORITY)
+            if not _source_ok(source):
+                continue  # .obj compilateur (COFF) -> pas un volume, on ignore
             src_rel = paths.to_relpath(source)
 
             if progress:
