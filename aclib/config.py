@@ -22,19 +22,51 @@ def _env(key: str, default: str) -> str:
 #   Windows : UNC          \\serveur\projets
 #   macOS   : point montage /Volumes/projets
 #   Linux   : montage       /mnt/projets
-NAS_ROOTS: dict[str, str] = {
-    "win32": _env("NAS_ROOT_WIN", r"\\serveur\projets"),
-    "darwin": _env("NAS_ROOT_MAC", "/Volumes/projets"),
-    "linux": _env("NAS_ROOT_LINUX", "/mnt/projets"),
+_NAS_ENV_KEY: dict[str, str] = {
+    "win32": "NAS_ROOT_WIN", "darwin": "NAS_ROOT_MAC", "linux": "NAS_ROOT_LINUX",
+}
+_NAS_DEFAULT: dict[str, str] = {
+    "win32": r"\\serveur\projets", "darwin": "/Volumes/projets", "linux": "/mnt/projets",
 }
 
 
+def _derive_nas_root() -> str | None:
+    """Déduit la racine NAS du dossier Bibliothèque (DATA_DIR).
+
+    Cas nominal : la base ET les sources vivent sur le MÊME partage réseau
+    (ex. \\\\littleds\\LA2026_3D\\ACLIB pour la base -> racine \\\\littleds\\LA2026_3D).
+    On prend la racine du partage (UNC) ou du volume monté (POSIX). Les deux
+    postes pointant le même partage en déduisent la même racine logique ->
+    chemins portables SANS configuration. Renvoie None si DATA_DIR est local
+    (pas un partage) -> on retombe sur env/défaut.
+    """
+    d = str(DATA_DIR)
+    if d.startswith("\\\\") or d.startswith("//"):           # UNC \\serveur\partage\...
+        parts = d.replace("/", "\\").lstrip("\\").split("\\")
+        if len(parts) >= 2:
+            return "\\\\" + parts[0] + "\\" + parts[1]
+    elif d.startswith("/"):                                  # POSIX /Volumes/NOM/... ou /mnt/NOM/...
+        parts = [p for p in d.split("/") if p]
+        if len(parts) >= 2:
+            return "/" + parts[0] + "/" + parts[1]
+    return None
+
+
 def nas_root() -> Path:
-    """Racine NAS absolue pour l'OS courant."""
-    root = NAS_ROOTS.get(sys.platform)
-    if root is None:
-        raise RuntimeError(f"Aucune racine NAS configurée pour la plateforme {sys.platform!r}")
-    return Path(root)
+    """Racine NAS absolue pour l'OS courant.
+
+    Priorité : variable d'env (ACLIB_NAS_ROOT_*) > racine déduite du dossier
+    Bibliothèque (partage commun) > défaut par OS.
+    """
+    key = _NAS_ENV_KEY.get(sys.platform)
+    val = os.environ.get(f"ACLIB_{key}") if key else None
+    if not val:
+        val = _derive_nas_root()
+    if not val:
+        val = _NAS_DEFAULT.get(sys.platform)
+    if val is None:
+        raise RuntimeError(f"Aucune racine NAS pour la plateforme {sys.platform!r}")
+    return Path(val)
 
 
 # --- Dossier de données (base + aperçus) ------------------------------------

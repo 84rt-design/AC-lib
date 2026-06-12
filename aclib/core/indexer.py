@@ -68,6 +68,32 @@ def _source_ok(source: Path) -> bool:
     return _is_valid_obj(source)
 
 
+def _relativize_paths(session) -> int:
+    """Convertit les chemins stockés en ABSOLU (anciennes fiches indexées avant
+    que la racine NAS soit connue) en RELATIF, dès qu'ils tombent sous la racine
+    NAS courante. Rend portable une base Windows lisible/exploitable sur Mac.
+    Coût nul réseau (manipulation de chaînes uniquement)."""
+    from aclib.db.models import AssetFile
+
+    try:
+        root = str(config.nas_root()).replace("\\", "/").rstrip("/")
+    except RuntimeError:
+        return 0
+    if not root:
+        return 0
+    root_lc = root.lower() + "/"
+    n = 0
+    for af in session.query(AssetFile).all():
+        rp = af.relpath
+        if not paths._is_absolute_stored(rp):
+            continue
+        norm = rp.replace("\\", "/")
+        if norm.lower().startswith(root_lc):
+            af.relpath = norm[len(root_lc):]  # garde la casse d'origine pour le reste
+            n += 1
+    return n
+
+
 def _purge_invalid(session) -> int:
     """Supprime les fiches dont le fichier source .obj est JOIGNABLE mais
     invalide (objet compilateur indexé par erreur). Ne lit que les .obj et ne
@@ -162,9 +188,10 @@ def _process_groups(
     force: bool = False,
 ) -> dict[str, int]:
     total = len(groups)
-    stats = {"new": 0, "updated": 0, "previews": 0, "errors": 0, "removed": 0}
+    stats = {"new": 0, "updated": 0, "previews": 0, "errors": 0, "removed": 0, "relativized": 0}
 
     with get_session() as session:
+        stats["relativized"] = _relativize_paths(session)
         stats["removed"] = _purge_invalid(session)
         for i, ((_dir, stem), files) in enumerate(sorted(groups.items()), start=1):
             source = _pick(files, _SOURCE_PRIORITY)
