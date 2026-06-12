@@ -38,9 +38,44 @@ jobs:
             https://github.com/facebookincubator/FBX2glTF/releases/download/v0.9.7/FBX2glTF-darwin-x86_64
           chmod +x tools/FBX2glTF
 
+      # Vérifie que PySide6 + QtWebEngine s'importent et que les fenêtres se
+      # construisent SUR macOS (catch crash d'import avant même le build).
+      - name: Smoke test (macOS, headless)
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QTWEBENGINE_DISABLE_SANDBOX: "1"
+          ACLIB_NAS_ROOT_MAC: ${{ runner.temp }}/aclibnas
+          ACLIB_DATA_DIR: ${{ runner.temp }}/aclibdata
+        run: |
+          mkdir -p "$ACLIB_NAS_ROOT_MAC" "$ACLIB_DATA_DIR"
+          python scripts/smoke_test.py
+
       - name: Build Viewer + Manager (.app)
         run: |
           python scripts/build_portable.py --manager --viewer
+
+      # Boot RÉEL de l'.app figée sur le Mac : si le bundle crash au lancement
+      # (QtWebEngine, framework manquant…), on le voit ici. N'échoue pas le
+      # build (continue-on-error) -> l'artifact reste téléchargeable.
+      - name: Launch built .app (headless boot check)
+        continue-on-error: true
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QTWEBENGINE_DISABLE_SANDBOX: "1"
+        run: |
+          BIN="dist/AClibViewer.app/Contents/MacOS/AClibViewer"
+          if [ ! -x "$BIN" ]; then echo "::error::binaire .app introuvable: $BIN"; ls -R dist | head -50; exit 1; fi
+          "$BIN" &
+          PID=$!
+          sleep 10
+          if kill -0 $PID 2>/dev/null; then
+            echo "OK : .app vivante apres 10s"
+            kill $PID
+          else
+            wait $PID; CODE=$?
+            echo "::error::.app morte au lancement (code $CODE)"
+            exit $CODE
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
