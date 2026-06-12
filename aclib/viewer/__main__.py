@@ -4,14 +4,12 @@ from __future__ import annotations
 import os
 import sys
 
-# IMPORTANT (macOS) : le renderer WebEngine du .app refuse par défaut de lire un
-# .glb local (file://) -> "Erreur de chargement" dans l'aperçu 3D. Ces flags
-# Chromium lèvent le sandbox + autorisent l'accès fichier local. Doit être posé
-# AVANT l'initialisation de QtWebEngine. Sans effet sous Windows (déjà OK).
-os.environ.setdefault(
-    "QTWEBENGINE_CHROMIUM_FLAGS", "--no-sandbox --allow-file-access-from-files"
-)
-os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
+# IMPORTANT (macOS) : le renderer WebEngine refuse par défaut qu'une page file://
+# charge un .glb local (file://) -> "Erreur de chargement" dans l'aperçu 3D.
+# --allow-file-access-from-files lève CETTE restriction. On NE désactive PAS le
+# sandbox (--no-sandbox / DISABLE_SANDBOX faisaient crasher le .app au démarrage
+# sur macOS). Doit être posé AVANT l'init QtWebEngine. Sans effet sous Windows.
+os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--allow-file-access-from-files")
 
 from PySide6.QtWidgets import QApplication
 
