@@ -38,16 +38,18 @@ ProgressCb = Callable[[str, int, int], None]  # (message, courant, total)
 def _is_valid_obj(p: Path) -> bool:
     """Distingue un OBJ Wavefront (maillage 3D, texte ASCII) d'un .obj
     compilateur (objet COFF binaire C/C++, ex. build Qt). Évite d'indexer des
-    artefacts de compilation qui partagent l'extension .obj."""
+    artefacts de compilation qui partagent l'extension .obj.
+
+    Lecture MINIMALE (512 o) : sur partage réseau chaque ouverture coûte cher.
+    Le test octet-nul suffit — un COFF binaire en contient dès l'en-tête, un
+    OBJ Wavefront (texte) jamais.
+    """
     try:
-        chunk = p.read_bytes()[:8192]
+        with p.open("rb") as f:
+            head = f.read(512)
     except OSError:
         return False
-    if b"\x00" in chunk:  # octet nul = binaire -> objet compilateur, pas Wavefront
-        return False
-    text = chunk.decode("ascii", "ignore").lower()
-    markers = ("\nv ", "\nf ", "\nvn ", "\nvt ", "\no ", "\ng ", "mtllib", "usemtl")
-    return text.startswith(("v ", "#", "o ", "g ")) or any(m in text for m in markers)
+    return b"\x00" not in head
 
 
 def _accept(p: Path) -> bool:
