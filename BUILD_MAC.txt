@@ -1,0 +1,133 @@
+==============================================================================
+A.C.Lib — Méthodologie : produire un build macOS (.app) SANS Mac local
+==============================================================================
+Dernière mise à jour : 12/06/2026
+Repo : https://github.com/84rt-design/AC-lib
+
+
+------------------------------------------------------------------------------
+1. LE PRINCIPE
+------------------------------------------------------------------------------
+PyInstaller NE cross-compile PAS : un .app macOS doit être construit SUR un Mac.
+Comme on n'a pas de Mac sous la main, on utilise un runner macOS de GitHub
+Actions (un vrai Mac dans le cloud Apple, gratuit pour repo public).
+
+Chaîne complète :
+  code (PC Windows)  ->  git push GitHub  ->  GitHub Actions (Mac cloud)
+       ->  build .app + tests  ->  artifact .zip à télécharger.
+
+Aucun Mac requis côté nous. Un vrai Mac valide l'app à chaque push.
+
+
+------------------------------------------------------------------------------
+2. LES FICHIERS CLÉS
+------------------------------------------------------------------------------
+.github/workflows/build-macos.yml   Le workflow CI (recette du build Mac).
+scripts/build_portable.py           Build PyInstaller, adapté par OS.
+requirements.txt                    Dépendances installées sur le runner.
+
+build_portable.py détecte l'OS courant :
+  - icône .icns (Mac) / .ico (Windows)
+  - binaire FBX2glTF (Mac) / FBX2glTF.exe (Windows)
+  - empaquetage du bundle .app via 'ditto' sur Mac
+    (IMPORTANT : un .app contient des symlinks + bits exécutables ; le zip
+     Python les PERD -> bundle cassé / "Terminal puis rien". ditto les préserve.)
+
+
+------------------------------------------------------------------------------
+3. CE QUE FAIT LE WORKFLOW (build-macos.yml)
+------------------------------------------------------------------------------
+Déclencheurs :
+  - automatique à chaque push sur 'main'
+  - manuel : onglet Actions -> Build macOS -> Run workflow
+  - sur tag v* (release)
+
+Étapes, sur runner macos-latest (Apple Silicon arm64) :
+  1. Checkout du code
+  2. Python 3.12
+  3. pip install -r requirements.txt + pyinstaller
+  4. Télécharge FBX2glTF Mac (optionnel, best-effort, n'échoue jamais)
+  5. SMOKE TEST headless : importe PySide6 + QtWebEngine, construit les fenêtres
+     -> attrape un crash d'import AVANT le build
+  6. BUILD : python scripts/build_portable.py --manager --viewer
+  7. BOOT CHECK : lance la .app figée 10 s en headless sur le Mac
+     -> attrape un crash au démarrage (le Mac teste l'app pour nous)
+  8. Upload artifact "AClib-macOS" (AClibViewer_portable.zip + Manager)
+
+Si une étape passe rouge, le log GitHub donne l'erreur exacte -> diagnostic
+sans Mac local.
+
+
+------------------------------------------------------------------------------
+4. PROCÉDURE PAS À PAS (à refaire à chaque modif)
+------------------------------------------------------------------------------
+Sur le PC (Windows) :
+
+  a) Modifier le code, tester en local :
+        .venv\Scripts\python.exe -m compileall -q aclib
+        .venv\Scripts\python.exe scripts\smoke_test.py
+
+  b) Commit + push :
+        git add -A
+        git commit -m "..."        (fin de message : Co-Authored-By ...)
+        git push origin main
+
+  c) Le push déclenche le build Mac automatiquement.
+     Suivre : https://github.com/84rt-design/AC-lib/actions
+     (vert = OK, rouge = lire le log de l'étape rouge)
+
+  d) Quand vert : ouvrir le run -> section "Artifacts" -> télécharger
+     "AClib-macOS".
+
+
+------------------------------------------------------------------------------
+5. CÔTÉ MAC (installation de l'app)
+------------------------------------------------------------------------------
+  - L'artifact GitHub est un .zip QUI CONTIENT AClibViewer_portable.zip,
+    lui-même contenant AClibViewer.app. Décompresser jusqu'au .app.
+  - 1er lancement : clic droit sur l'app -> Ouvrir (Gatekeeper, app non signée).
+    Si bloqué :  xattr -dr com.apple.quarantine AClibViewer.app
+  - Puce : runner = Apple Silicon -> .app arm64 (Mac M1/M2/M3+).
+    Pour un Mac Intel -> changer runner en macos-13 dans le workflow.
+
+
+------------------------------------------------------------------------------
+6. DIAGNOSTIC SI L'APP CRASHE OU BUGUE SUR MAC (sans Mac à dispo)
+------------------------------------------------------------------------------
+On ne peut pas voir l'écran du Mac, donc on raisonne et on instrumente :
+
+  - Le BOOT CHECK du CI lance déjà l'app sur un vrai Mac -> si elle crashe au
+    démarrage de façon reproductible, le run passe rouge.
+    (Limite : le CI est headless/offscreen -> ne reproduit pas tout le GUI réel.)
+
+  - Inspecter la base sur le serveur (si joignable) pour les soucis de chemins.
+
+  - Simuler la résolution de chemins Mac EN PYTHON sur le PC :
+    forcer la racine NAS POSIX (/Volumes/...) et vérifier que to_abs()
+    reconstruit le bon chemin -> valide la portabilité sans Mac.
+
+  - En dernier recours, demander au collègue UNE capture :
+    le rapport de crash macOS (Console.app -> Plantages -> AClibViewer,
+    premières lignes : process + dylib fautif). Suffit pour corriger.
+
+
+------------------------------------------------------------------------------
+7. PIÈGES macOS DÉJÀ RENCONTRÉS ET CORRIGÉS
+------------------------------------------------------------------------------
+  - Zip Python casse le bundle .app  -> empaqueter avec 'ditto'.
+  - SQLite WAL incompatible partage réseau (base vue vide/bloquée sur Mac)
+       -> journal_mode=DELETE (session.py).
+  - QtWebEngine same-origin bloque le chargement .glb local ("Erreur de
+    chargement") -> flag --allow-file-access-from-files (viewer/__main__.py).
+  - Désactiver le sandbox WebEngine (--no-sandbox / QTWEBENGINE_DISABLE_SANDBOX)
+    fait CRASHER le .app au démarrage sur macOS -> NE PAS le faire.
+  - Chemins NAS : ne stocker QUE du relatif ; racine NAS auto-déduite du
+    dossier Bibliothèque partagé -> portable PC <-> Mac sans réglage.
+
+
+------------------------------------------------------------------------------
+8. EN UNE PHRASE
+------------------------------------------------------------------------------
+On pousse le code sur GitHub ; un Mac cloud (GitHub Actions) construit et teste
+le .app, et nous renvoie le .zip. Pas de Mac local, validé à chaque push.
+==============================================================================

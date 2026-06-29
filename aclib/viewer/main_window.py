@@ -54,6 +54,13 @@ _FORMATS = ["C4D", "FBX", "OBJ", "STEP"]
 _CAP_MAX = 500
 _HEIGHT_MAX = 400
 
+# Tailles de vignettes (page bibliothèque) : (largeur carte, hauteur vignette).
+_CARD_SIZES: dict[str, tuple[int, int]] = {
+    "Petite": (184, 112),
+    "Moyenne": (244, 150),
+    "Grande": (320, 196),
+}
+
 
 class ViewerWindow(QMainWindow):
     def __init__(self) -> None:
@@ -62,6 +69,7 @@ class ViewerWindow(QMainWindow):
         self.resize(1320, 820)
         self.cart = Cart()
         self.favs = Favorites()
+        self._card_size = "Moyenne"   # taille de vignette par défaut
         self._current_id: int | None = None
         self._export_worker: export_mod.ExportWorker | None = None
 
@@ -284,9 +292,17 @@ class ViewerWindow(QMainWindow):
         self.sort.addItems(["Récents d'abord", "A → Z", "Contenance ↑", "Contenance ↓"])
         self.sort.currentIndexChanged.connect(self._reload_grid)
 
+        # sélecteur de taille de vignettes
+        self.size_box = QComboBox()
+        self.size_box.addItems(list(_CARD_SIZES.keys()))
+        self.size_box.setCurrentText(self._card_size)
+        self.size_box.setToolTip("Taille des vignettes")
+        self.size_box.currentTextChanged.connect(self._on_size_changed)
+
         header.addWidget(self.btn_grid)
         header.addWidget(self.btn_list)
         header.addSpacing(8)
+        header.addWidget(self.size_box)
         header.addWidget(self.sort)
         lay.addLayout(header)
 
@@ -462,6 +478,11 @@ class ViewerWindow(QMainWindow):
     def _checked(self, chips: list[widgets.Chip]) -> list[str]:
         return [c.text() for c in chips if c.isChecked()]
 
+    def _on_size_changed(self, name: str) -> None:
+        if name in _CARD_SIZES:
+            self._card_size = name
+            self._reload_grid()
+
     def _on_nav_changed(self, checked: bool) -> None:
         if not checked:
             return
@@ -534,8 +555,9 @@ class ViewerWindow(QMainWindow):
     def _reload_grid(self) -> None:
         data = self._query_assets()
         self._clear_layout(self.grid)
+        cw, th = _CARD_SIZES.get(self._card_size, _CARD_SIZES["Moyenne"])
         for d in data:
-            card = widgets.AssetCard(d)
+            card = widgets.AssetCard(d, card_w=cw, thumb_h=th)
             card.clicked.connect(self._open_detail)
             card.favoriteToggled.connect(self._on_favorite_toggled)
             self.grid.addWidget(card)

@@ -244,8 +244,12 @@ class AssetCard(QFrame):
     CARD_W = 244
     THUMB_H = 150
 
-    def __init__(self, data: dict, parent=None) -> None:
+    def __init__(self, data: dict, parent=None, card_w: int | None = None,
+                 thumb_h: int | None = None) -> None:
         super().__init__(parent)
+        # taille variable (sélecteur de vignettes) ; défaut = taille moyenne
+        self.CARD_W = card_w or AssetCard.CARD_W
+        self.THUMB_H = thumb_h or AssetCard.THUMB_H
         self._id = int(data["id"])
         self.setObjectName("AssetCard")
         self.setFixedWidth(self.CARD_W)
