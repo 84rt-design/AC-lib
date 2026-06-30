@@ -79,6 +79,15 @@
     <div id="rc-head"><span>RENDU</span><span class="chev">▾</span></div>
     <div id="rc-body">
       <div class="rc-row">
+        <label>Orienter l'objet (90°)</label>
+        <div class="rc-seg" id="rc-rot">
+          <button data-rot="x">X</button>
+          <button data-rot="y">Y</button>
+          <button data-rot="z">Z</button>
+          <button data-rot="reset" title="Réinitialiser l'orientation">⟲</button>
+        </div>
+      </div>
+      <div class="rc-row">
         <label>Exposition <span id="rc-exp-v">1.0</span></label>
         <input id="rc-exp" type="range" min="0.2" max="2.5" step="0.05" value="1.0" />
       </div>
@@ -325,6 +334,30 @@
       };
     });
     $id('rc-xray').onchange = (e) => { xray = e.target.checked; applyMatSettings(current); };
+
+    // --- Orientation : redresse un objet couché (rotation 90° autour X/Y/Z) ---
+    // Rotation autour des axes MONDE (cohérent quelle que soit l'orientation),
+    // puis recentrage sans déplacer la caméra (on garde l'orbite en cours).
+    function recenter(obj) {
+      const box = new THREE.Box3().setFromObject(obj);
+      const c = box.getCenter(new THREE.Vector3());
+      obj.position.sub(c);
+    }
+    function rotateModel(kind) {
+      if (!current) return;
+      if (kind === 'reset') {
+        current.rotation.set(0, 0, 0);
+      } else {
+        const ax = kind === 'x' ? new THREE.Vector3(1, 0, 0)
+                 : kind === 'y' ? new THREE.Vector3(0, 1, 0)
+                 :                 new THREE.Vector3(0, 0, 1);
+        current.rotateOnWorldAxis(ax, Math.PI / 2);
+      }
+      recenter(current);
+    }
+    $id('rc-rot').querySelectorAll('button').forEach((b) => {
+      b.onclick = () => rotateModel(b.dataset.rot);
+    });
 
     // jeton de génération : le chargement glTF est asynchrone ; si on change de
     // modèle avant la fin, on JETTE le résultat périmé (sinon ils s'accumulent).
