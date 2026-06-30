@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSpinBox,
+    QSplitter,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -164,14 +165,28 @@ class ViewerWindow(QMainWindow):
         lay = QHBoxLayout(page)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
-        lay.addWidget(self._build_sidebar())
-        lay.addWidget(self._build_main_area(), 1)
+        # splitter déplaçable : l'utilisateur règle la largeur sidebar / grille
+        split = QSplitter(Qt.Horizontal)
+        split.setObjectName("LibSplit")
+        split.setHandleWidth(6)
+        split.setChildrenCollapsible(False)
+        split.addWidget(self._build_sidebar())
+        split.addWidget(self._build_main_area())
+        split.setStretchFactor(0, 0)   # sidebar : largeur ~stable
+        split.setStretchFactor(1, 1)   # grille : prend l'espace au redimensionnement
+        split.setSizes([260, 1060])
+        split.setStyleSheet(
+            f"QSplitter#LibSplit::handle {{ background: {theme.BORDER_SOFT}; }}"
+            f"QSplitter#LibSplit::handle:hover {{ background: {theme.GRIS_MINERAL}; }}"
+        )
+        lay.addWidget(split)
         return page
 
     def _build_sidebar(self) -> QWidget:
         side = QWidget()
         side.setObjectName("Sidebar")
-        side.setFixedWidth(252)
+        side.setMinimumWidth(220)
+        side.setMaximumWidth(560)   # réglable à la main via le splitter
         outer = QVBoxLayout(side)
         outer.setContentsMargins(0, 0, 0, 0)
 
