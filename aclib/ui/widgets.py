@@ -340,3 +340,76 @@ class AssetCard(QFrame):
 
     def mouseReleaseEvent(self, _e) -> None:  # noqa: N802
         self.clicked.emit(self._id)
+
+
+class AssetRow(QFrame):
+    """Ligne compacte (vue liste) : vignette + nom + specs + étoile, pleine
+    largeur. Une par ligne."""
+
+    clicked = Signal(int)
+    favoriteToggled = Signal(int, bool)
+
+    ROW_H = 64
+    THUMB = 56
+
+    def __init__(self, data: dict, parent=None) -> None:
+        super().__init__(parent)
+        self._id = int(data["id"])
+        self.setObjectName("AssetRow")
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFixedHeight(self.ROW_H)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._apply_style(False)
+
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(8, 6, 12, 6); lay.setSpacing(12)
+
+        thumb = QLabel(); thumb.setFixedSize(self.THUMB, self.THUMB)
+        thumb.setAlignment(Qt.AlignCenter)
+        thumb.setStyleSheet(f"background: {theme.BG_THUMB}; border-radius: 8px;")
+        path = data.get("thumb_path")
+        if path and Path(path).exists():
+            thumb.setPixmap(QPixmap(str(path)).scaled(
+                self.THUMB - 8, self.THUMB - 8, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        else:
+            thumb.setPixmap(icons.pixmap("bottle", theme.TEXT_DIM, 26))
+        lay.addWidget(thumb)
+
+        col = QVBoxLayout(); col.setSpacing(2)
+        name = QLabel(data.get("name", "")); name.setStyleSheet(
+            f"color: {theme.TEXT}; font-size: 13px; font-weight: 600; background: transparent;")
+        specs = QLabel(_fmt_specs(data.get("diameter_mm"), data.get("height_mm"), data.get("weight_bytes")))
+        specs.setStyleSheet(f"color: {theme.TEXT_DIM}; font-size: 11px; background: transparent;")
+        col.addWidget(name); col.addWidget(specs)
+        lay.addLayout(col, 1)
+
+        cap = data.get("capacity_label")
+        if cap:
+            cl = QLabel(cap); cl.setStyleSheet(
+                f"color: {theme.TEXT_MUTED}; font-size: 12px; background: transparent;")
+            lay.addWidget(cl)
+        fmt = data.get("primary_format")
+        if fmt:
+            fl = QLabel(fmt.upper()); fl.setStyleSheet(
+                f"color: {theme.TEXT_DIM}; font-size: 11px; background: transparent;")
+            lay.addWidget(fl)
+
+        star = _FavStar(bool(data.get("favorite")), self)
+        star.toggled.connect(lambda on: self.favoriteToggled.emit(self._id, on))
+        lay.addWidget(star)
+
+    def _apply_style(self, hover: bool) -> None:
+        bg = theme.BG_CARD_HOVER if hover else theme.BG_CARD
+        self.setStyleSheet(
+            f"#AssetRow {{ background: {bg}; border: 1px solid {theme.BORDER_SOFT}; "
+            f"border-radius: 10px; }}"
+        )
+
+    def enterEvent(self, _e) -> None:  # noqa: N802
+        self._apply_style(True)
+
+    def leaveEvent(self, _e) -> None:  # noqa: N802
+        self._apply_style(False)
+
+    def mouseReleaseEvent(self, _e) -> None:  # noqa: N802
+        self.clicked.emit(self._id)

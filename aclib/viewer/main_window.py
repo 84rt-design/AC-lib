@@ -71,6 +71,7 @@ class ViewerWindow(QMainWindow):
         self.cart = Cart()
         self.favs = Favorites()
         self._card_size = "Moyenne"   # taille de vignette par défaut
+        self._view = "grid"           # "grid" | "list"
         self._current_id: int | None = None
         self._export_worker: export_mod.ExportWorker | None = None
 
@@ -302,6 +303,8 @@ class ViewerWindow(QMainWindow):
         self.btn_list.setFixedWidth(40)
         view_group = QButtonGroup(self); view_group.setExclusive(True)
         view_group.addButton(self.btn_grid); view_group.addButton(self.btn_list)
+        self.btn_grid.clicked.connect(lambda: self._set_view("grid"))
+        self.btn_list.clicked.connect(lambda: self._set_view("list"))
 
         self.sort = QComboBox()
         self.sort.addItems(["Récents d'abord", "A → Z", "Contenance ↑", "Contenance ↓"])
@@ -321,26 +324,29 @@ class ViewerWindow(QMainWindow):
         header.addWidget(self.sort)
         lay.addLayout(header)
 
-        # grille scrollable
+        # zone scrollable (le contenu — grille OU liste — est reconstruit par
+        # _reload_grid selon le mode de vue).
         self.scroll = QScrollArea(); self.scroll.setWidgetResizable(True)
         self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.grid_host = QWidget()
-        self.grid_host.setStyleSheet(f"background: {theme.BG_GRID};")
-        self.grid = FlowLayout(self.grid_host, margin=0, spacing=16)
-        # FlowLayout + QScrollArea : la hauteur calculée par heightForWidth n'est
-        # pas propagée -> on force la hauteur mini du host pour que le scroll
-        # apparaisse au lieu de rogner les dernières cartes.
-        self.grid_host.resizeEvent = self._grid_host_resized
-        self.scroll.setWidget(self.grid_host)
+        self.grid_host = None
+        self.grid = None
         lay.addWidget(self.scroll, 1)
         return area
 
+    def _set_view(self, mode: str) -> None:
+        if mode != self._view:
+            self._view = mode
+            self.size_box.setEnabled(mode == "grid")  # taille vignette = grille seule
+            self._reload_grid()
+
     def _grid_host_resized(self, e) -> None:
-        w = self.grid_host.width()
-        h = self.grid.heightForWidth(w)
-        if h != self.grid_host.minimumHeight():
-            self.grid_host.setMinimumHeight(h)
+        # FlowLayout + QScrollArea : heightForWidth n'est pas propagé -> on force
+        # la hauteur mini du host pour que le scroll apparaisse (vue grille).
+        if self.grid is not None and self.grid_host is not None:
+            h = self.grid.heightForWidth(self.grid_host.width())
+            if h != self.grid_host.minimumHeight():
+                self.grid_host.setMinimumHeight(h)
         QWidget.resizeEvent(self.grid_host, e)
 
     # ============================================================ DETAIL PAGE
@@ -569,18 +575,35 @@ class ViewerWindow(QMainWindow):
 
     def _reload_grid(self) -> None:
         data = self._query_assets()
-        self._clear_layout(self.grid)
-        cw, th = _CARD_SIZES.get(self._card_size, _CARD_SIZES["Moyenne"])
-        for d in data:
-            card = widgets.AssetCard(d, card_w=cw, thumb_h=th)
-            card.clicked.connect(self._open_detail)
-            card.favoriteToggled.connect(self._on_favorite_toggled)
-            self.grid.addWidget(card)
+        # host reconstruit à chaque fois (swap propre grille <-> liste)
+        host = QWidget()
+        host.setStyleSheet(f"background: {theme.BG_GRID};")
+        if self._view == "list":
+            self.grid = None
+            box = QVBoxLayout(host)
+            box.setContentsMargins(0, 0, 0, 0); box.setSpacing(8)
+            for d in data:
+                row = widgets.AssetRow(d)
+                row.clicked.connect(self._open_detail)
+                row.favoriteToggled.connect(self._on_favorite_toggled)
+                box.addWidget(row)
+            box.addStretch(1)
+        else:
+            self.grid = FlowLayout(host, margin=0, spacing=16)
+            cw, th = _CARD_SIZES.get(self._card_size, _CARD_SIZES["Moyenne"])
+            for d in data:
+                card = widgets.AssetCard(d, card_w=cw, thumb_h=th)
+                card.clicked.connect(self._open_detail)
+                card.favoriteToggled.connect(self._on_favorite_toggled)
+                self.grid.addWidget(card)
+            host.resizeEvent = self._grid_host_resized  # hauteur pour le scroll
+        self.grid_host = host
+        self.scroll.setWidget(host)   # remplace + détruit l'ancien host
+        if self.grid is not None:
+            host.setMinimumHeight(self.grid.heightForWidth(host.width() or 1000))
         n = len(data)
         self.subtitle.setText(f"{n} résultat" + ("s" if n != 1 else ""))
         self.status.setText(f"{n} volume(s).")
-        # recalcule la hauteur du host pour la barre de défilement
-        self.grid_host.setMinimumHeight(self.grid.heightForWidth(self.grid_host.width()))
 
     def _on_favorite_toggled(self, asset_id: int, on: bool) -> None:
         self.favs.toggle(asset_id)
