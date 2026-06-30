@@ -142,13 +142,16 @@ QPushButton#Chip {{
     padding: 5px 12px;
     color: {TEXT_MUTED};
     font-size: 12px;
+    outline: none;
 }}
 QPushButton#Chip:hover {{ border-color: {GRIS_MINERAL}; color: {TEXT}; }}
 QPushButton#Chip:checked {{
-    background: {BLANC_OPTIQUE};
-    color: {NOIR_CARBONE};
-    border-color: {BLANC_OPTIQUE};
+    background: #1E3A2A;
+    color: #6FE3A0;
+    border: 1px solid #2E5E43;
+    font-weight: 600;
 }}
+QPushButton#Chip:checked:hover {{ border-color: #6FE3A0; }}
 
 /* --- item de sidebar --- */
 QPushButton#NavItem {{
