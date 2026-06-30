@@ -22,6 +22,15 @@ import json
 import sys
 from pathlib import Path
 
+
+def _log(msg: str) -> None:
+    """Trace d'étape sur stderr (visible dans la console c4dpy ; n'interfère
+    pas avec la ligne JSON finale lue sur stdout)."""
+    sys.stderr.write(f"[c4d_worker] {msg}\n")
+    sys.stderr.flush()
+
+
+_log("démarrage worker ; import du module c4d (init Cinema 4D)…")
 try:
     import c4d
     from c4d import documents
@@ -30,6 +39,7 @@ except ImportError:  # pragma: no cover
         "Ce script doit être lancé avec c4dpy (Cinema 4D), pas python standard.\n"
     )
     raise SystemExit(2)
+_log("module c4d chargé.")
 
 
 # Ids d'export. Stables, mais à confirmer selon la version (Plugins > Save As).
@@ -40,12 +50,14 @@ FORMAT_OBJ_EXPORT = getattr(c4d, "FORMAT_OBJEXPORT", 1019572)
 
 
 def _load(source: Path):
+    _log(f"chargement du document : {source}")
     doc = documents.LoadDocument(
         str(source),
         c4d.SCENEFILTER_OBJECTS | c4d.SCENEFILTER_MATERIALS,
     )
     if doc is None:
         raise RuntimeError(f"LoadDocument a échoué : {source}")
+    _log("document chargé.")
     return doc
 
 
@@ -87,8 +99,11 @@ def main() -> int:
 
     src, out = Path(args.source), Path(args.out)
     try:
+        _log("export FBX…")
         fbx = export_fbx(src, out)  # FBX = indispensable (aperçu + échange)
+        _log(f"FBX écrit : {fbx}")
     except Exception as exc:  # noqa: BLE001
+        _log(f"ERREUR export FBX : {exc}")
         print(json.dumps({"ok": False, "error": str(exc)}))
         return 1
 
@@ -97,10 +112,14 @@ def main() -> int:
         # OBJ best-effort : l'id d'export varie selon la version C4D. En cas
         # d'échec on n'interrompt PAS l'import (c4d + fbx suffisent).
         try:
+            _log("export OBJ…")
             result["obj"] = str(export_obj(src, out))
+            _log(f"OBJ écrit : {result['obj']}")
         except Exception as exc:  # noqa: BLE001
+            _log(f"OBJ ignoré (échec) : {exc}")
             result["obj_error"] = str(exc)
 
+    _log("terminé, émission du JSON.")
     print(json.dumps(result))
     return 0
 

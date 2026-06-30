@@ -70,9 +70,17 @@ def _run_c4dpy(cmd: list[str]) -> dict:
             timeout=_C4DPY_TIMEOUT, stdin=subprocess.DEVNULL,
         )
     except subprocess.TimeoutExpired as exc:
+        # remonte les dernières traces du worker (où ça a calé)
+        def _dec(b):
+            if not b:
+                return ""
+            return b if isinstance(b, str) else b.decode("utf-8", "ignore")
+        tail = (_dec(exc.stderr) + _dec(exc.stdout)).strip()[-1000:]
         raise ConversionError(
             f"c4dpy n'a pas répondu en {_C4DPY_TIMEOUT}s (Cinema 4D bloqué ? "
             "dialogue licence ? 1er lancement très lent ?). Import annulé."
+            + (f"\n\nDernières traces c4dpy :\n{tail}" if tail else
+               "\n\n(aucune trace : blocage probable à l'init de Cinema 4D / licence)")
         ) from exc
     if proc.returncode != 0:
         raise ConversionError(
