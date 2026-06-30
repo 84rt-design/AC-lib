@@ -88,6 +88,10 @@ def build_app(entry: str, name: str, icon: Path | None) -> Path:
     ]
     if icon is not None:
         args += ["--icon", str(icon)]
+    # worker c4dpy embarqué (export C4D->FBX/OBJ) ; résolu via sys._MEIPASS/scripts
+    worker = ROOT / "scripts" / "c4d_worker.py"
+    if worker.exists():
+        args += ["--add-data", f"{worker}{os.pathsep}scripts"]
     # convertisseur FBX bundlé s'il est présent (nom selon l'OS)
     fbx_name = "FBX2glTF.exe" if IS_WIN else "FBX2glTF"
     fbx2gltf = ROOT / "tools" / fbx_name

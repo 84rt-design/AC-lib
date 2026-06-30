@@ -22,12 +22,24 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
 from aclib.core.conversion.base import ConversionError, ConversionResult
 
-_WORKER = Path(__file__).resolve().parents[3] / "scripts" / "c4d_worker.py"
+def _worker_script() -> Path:
+    """Chemin du worker c4dpy. En exe figé (PyInstaller), il est embarqué dans
+    le bundle (sys._MEIPASS/scripts) ; en dev, dans le repo (scripts/)."""
+    if getattr(sys, "frozen", False):
+        base = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+        cand = base / "scripts" / "c4d_worker.py"
+        if cand.exists():
+            return cand
+    return Path(__file__).resolve().parents[3] / "scripts" / "c4d_worker.py"
+
+
+_WORKER = _worker_script()
 
 _C4DPY_HELP = (
     "c4dpy introuvable. Renseigner son chemin via le Manager (bouton Options), "
@@ -45,8 +57,18 @@ _C4DPY_TIMEOUT = 300
 
 def _run_c4dpy(cmd: list[str]) -> dict:
     """Lance c4dpy avec timeout, renvoie le payload JSON du worker."""
+    if not Path(_WORKER).exists():
+        raise ConversionError(
+            f"Worker c4dpy introuvable : {_WORKER}. "
+            "Réinstaller la version à jour (le worker doit être embarqué)."
+        )
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=_C4DPY_TIMEOUT)
+        # stdin fermé : si c4dpy tentait un mode interactif, il reçoit EOF au
+        # lieu de bloquer indéfiniment.
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True,
+            timeout=_C4DPY_TIMEOUT, stdin=subprocess.DEVNULL,
+        )
     except subprocess.TimeoutExpired as exc:
         raise ConversionError(
             f"c4dpy n'a pas répondu en {_C4DPY_TIMEOUT}s (Cinema 4D bloqué ? "
