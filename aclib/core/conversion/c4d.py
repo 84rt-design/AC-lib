@@ -27,28 +27,40 @@ from pathlib import Path
 
 from aclib.core.conversion.base import ConversionError, ConversionResult
 
-# Exécutable c4dpy. À configurer si absent du PATH :
-#   Windows : "C:/Program Files/Maxon Cinema 4D 2024/c4dpy.exe"
-#   macOS   : "/Applications/Maxon Cinema 4D 2024/c4dpy.app/Contents/MacOS/c4dpy"
-C4DPY: str | None = shutil.which("c4dpy")
-
 _WORKER = Path(__file__).resolve().parents[3] / "scripts" / "c4d_worker.py"
+
+_C4DPY_HELP = (
+    "c4dpy introuvable. Renseigner son chemin via le Manager (bouton Options), "
+    "ou installer Cinema 4D et exposer c4dpy dans le PATH.\n"
+    "  Windows : C:/Program Files/Maxon Cinema 4D 2024/c4dpy.exe\n"
+    "  macOS   : /Applications/Maxon Cinema 4D 2024/c4dpy.app/Contents/MacOS/c4dpy"
+)
+
+
+def c4dpy_path() -> str | None:
+    """Chemin de l'exécutable c4dpy : réglage utilisateur (Options) puis PATH."""
+    try:
+        from aclib import settings
+
+        saved = settings.get("c4dpy_path")
+        if saved and Path(saved).exists():
+            return saved
+    except Exception:  # noqa: BLE001
+        pass
+    return shutil.which("c4dpy")
 
 
 def convert(source: Path, out_dir: Path, thumb_size: int = 512, out_name: str | None = None) -> ConversionResult:
-    if C4DPY is None:
-        raise ConversionError(
-            "c4dpy introuvable. Installer Cinema 4D et exposer c4dpy dans le PATH "
-            "(ou éditer C4DPY dans aclib/core/conversion/c4d.py). "
-            "Valider d'abord scripts/test_c4d_pipeline.py."
-        )
+    c4dpy = c4dpy_path()
+    if c4dpy is None:
+        raise ConversionError(_C4DPY_HELP)
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # 1) c4dpy : .c4d -> .fbx (dans un dossier temporaire).
     with tempfile.TemporaryDirectory() as tmp:
         cmd = [
-            C4DPY, str(_WORKER),
+            c4dpy, str(_WORKER),
             "--source", str(source),
             "--out", tmp,
             "--thumb-size", str(thumb_size),
@@ -81,15 +93,12 @@ def convert(source: Path, out_dir: Path, thumb_size: int = 512, out_name: str | 
 def export_exchange(source: Path, out_dir: Path) -> dict[str, Path]:
     """Exporte le .c4d en FBX + OBJ DANS out_dir (gardés, pour archivage dans la
     bibliothèque). Renvoie {'fbx': Path, 'obj': Path}. Nécessite c4dpy."""
-    if C4DPY is None:
-        raise ConversionError(
-            "c4dpy introuvable : impossible d'exporter FBX/OBJ depuis un .c4d. "
-            "Installer Cinema 4D et exposer c4dpy dans le PATH "
-            "(ou éditer C4DPY dans aclib/core/conversion/c4d.py)."
-        )
+    c4dpy = c4dpy_path()
+    if c4dpy is None:
+        raise ConversionError(_C4DPY_HELP)
     out_dir.mkdir(parents=True, exist_ok=True)
     cmd = [
-        C4DPY, str(_WORKER),
+        c4dpy, str(_WORKER),
         "--source", str(source),
         "--out", str(out_dir),
         "--exchange",

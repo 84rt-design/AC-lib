@@ -237,6 +237,14 @@ class ManagerWindow(QMainWindow):
         self.btn_refresh.setCursor(Qt.PointingHandCursor)
         self.btn_refresh.clicked.connect(self._refresh)
 
+        self.btn_options = QPushButton()
+        self.btn_options.setObjectName("Ghost")
+        self.btn_options.setIcon(icons.icon("gear", theme.TEXT, 16))
+        self.btn_options.setToolTip("Options (chemin c4dpy…)")
+        self.btn_options.setFixedWidth(40)
+        self.btn_options.setCursor(Qt.PointingHandCursor)
+        self.btn_options.clicked.connect(self._open_options)
+
         # --- bouton DEV (temporaire) : régénère tous les aperçus + miniatures ---
         self.btn_regen = QPushButton("⟳ Régén (dev)")
         self.btn_regen.setCursor(Qt.PointingHandCursor)
@@ -265,6 +273,7 @@ class ManagerWindow(QMainWindow):
         lay.addStretch(1)
         lay.addWidget(self.btn_regen)
         lay.addWidget(self.btn_library); lay.addWidget(self.btn_refresh)
+        lay.addWidget(self.btn_options)
         lay.addWidget(self.btn_folder); lay.addWidget(avatar)
         return bar
 
@@ -935,6 +944,31 @@ class ManagerWindow(QMainWindow):
         folder = QFileDialog.getExistingDirectory(self, "Dossier à indexer", start)
         if folder:
             self._run_index([folder])
+
+    # ============================================================ OPTIONS
+    def _open_options(self) -> None:
+        """Réglages machine : chemin de l'exécutable c4dpy (export C4D->FBX/OBJ)."""
+        from aclib import settings
+        from aclib.core.conversion import c4d as c4dconv
+
+        current = settings.get("c4dpy_path") or ""
+        detected = c4dconv.c4dpy_path()
+        start = current or (detected or str(Path.home()))
+        flt = "c4dpy (c4dpy.exe c4dpy);;Tous les fichiers (*)"
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Sélectionner l'exécutable c4dpy (Cinema 4D)", start, flt
+        )
+        if not path:
+            return
+        settings.set("c4dpy_path", path)
+        ok = Path(path).exists()
+        QMessageBox.information(
+            self, "Options",
+            (f"c4dpy enregistré :\n{path}" if ok
+             else f"Chemin introuvable :\n{path}\n\nVérifie l'emplacement.")
+            + "\n\nGlisse un .c4d pour exporter FBX/OBJ + indexer.",
+        )
+        self.status.setText(f"c4dpy : {path}")
 
     def _run_index(self, targets: list[str], force: bool = False,
                    materialize_c4d: bool = False) -> None:
