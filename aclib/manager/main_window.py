@@ -53,8 +53,9 @@ _VIEWER_HTML = Path(__file__).resolve().parents[1] / "viewer" / "web" / "viewer3
 _DOT_OK = "#5BD68A"
 _DOT_KO = "#E0B23B"
 
-# sentinelle de filtre « volumes sans aucune catégorie »
-_UNCAT = "__uncat__"
+# sentinelles de filtre (catégories virtuelles, pas en base)
+_UNCAT = "__uncat__"   # volumes sans aucune catégorie
+_NEW = "__new__"       # nouveaux volumes non encore validés (reviewed == False)
 
 
 def _status_of(a: Asset) -> str:
@@ -534,6 +535,14 @@ class ManagerWindow(QMainWindow):
             counts = {c.id: len(c.assets) for c in cats}
             names = {c.id: c.name for c in cats}
             uncat = s.query(Asset).filter(~Asset.categories.any()).count()
+            new_count = s.query(Asset).filter(Asset.reviewed.is_(False)).count()
+        # entrée « Nouveaux » (volumes non encore validés ; sortent à la validation)
+        new_item = QListWidgetItem(f"  Nouveaux   ({new_count})")
+        new_item.setIcon(icons.icon("star", theme.TEXT_DIM, 16))
+        new_item.setData(Qt.UserRole, _NEW)
+        self.cat_list.addItem(new_item)
+        if prev == _NEW:
+            select_item = new_item
         # entrée « Sans catégorie » (volumes non classés)
         uncat_item = QListWidgetItem(f"  Sans catégorie   ({uncat})")
         uncat_item.setIcon(icons.icon("folder", theme.TEXT_DIM, 16))
@@ -649,7 +658,9 @@ class ManagerWindow(QMainWindow):
         text = self.search.text().strip().lower()
         with get_session() as s:
             q = s.query(Asset)
-            if self._filter_cat == _UNCAT:
+            if self._filter_cat == _NEW:
+                q = q.filter(Asset.reviewed.is_(False))
+            elif self._filter_cat == _UNCAT:
                 q = q.filter(~Asset.categories.any())
             elif self._filter_cat is not None:
                 q = q.join(Asset.categories).filter(Category.id == self._filter_cat)
@@ -815,7 +826,8 @@ class ManagerWindow(QMainWindow):
             a.tags = self._resolve_tags(s, self.f_tags.tags())
             a.reviewed = True  # édité par l'utilisateur -> retire la pastille NEW
         self.status.setText("Fiche enregistrée ✓ (mode édition conservé).")
-        self._reload_list()  # met à jour la liste ; reste en mode édition
+        self._reload_categories()  # maj compteur « Nouveaux » (la fiche en sort)
+        self._reload_list()        # met à jour la liste ; reste en mode édition
 
     @staticmethod
     def _resolve_tags(session, names: list[str]) -> list[Tag]:
