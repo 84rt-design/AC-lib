@@ -18,7 +18,7 @@ class IndexWorker(QThread):
     failed = Signal(str)               # message d'erreur
 
     def __init__(self, targets, make_previews: bool = True, force: bool = False,
-                 materialize_c4d: bool = False) -> None:
+                 materialize: bool = False) -> None:
         super().__init__()
         # un seul dossier (str/Path) ou une liste de chemins
         if isinstance(targets, (str, Path)):
@@ -27,7 +27,7 @@ class IndexWorker(QThread):
             self._targets = [Path(t) for t in targets]
         self._make_previews = make_previews
         self._force = force
-        self._materialize_c4d = materialize_c4d
+        self._materialize = materialize
 
     def run(self) -> None:  # exécuté dans le thread
         try:
@@ -36,7 +36,7 @@ class IndexWorker(QThread):
                 make_previews=self._make_previews,
                 progress=lambda m, c, t: self.progress.emit(m, c, t),
                 force=self._force,
-                materialize_c4d=self._materialize_c4d,
+                materialize=self._materialize,
             )
             self.done.emit(stats)
         except Exception as exc:  # noqa: BLE001 — remonté à l'UI

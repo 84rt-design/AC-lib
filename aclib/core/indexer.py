@@ -31,7 +31,9 @@ _SOURCE_PRIORITY = (".c4d", ".step", ".stp", ".fbx", ".obj")
 #    -> outliner pièce par pièce. (trimesh fusionne l'OBJ en un seul mesh.)
 #  - puis glTF/GLB déjà multi-meshes, puis OBJ/PLY/STL (fallback fusionné),
 #    puis C4D/STEP.
-_PREVIEW_PRIORITY = (".fbx", ".glb", ".gltf", ".obj", ".ply", ".stl", ".off", ".c4d", ".step", ".stp")
+# NB : .c4d retiré — la conversion via c4dpy est abandonnée (licence headless).
+# Un .c4d sans .fbx/.obj de même nom n'aura pas d'aperçu (volume créé quand même).
+_PREVIEW_PRIORITY = (".fbx", ".glb", ".gltf", ".obj", ".ply", ".stl", ".off", ".step", ".stp")
 
 ProgressCb = Callable[[str, int, int], None]  # (message, courant, total)
 
@@ -153,35 +155,28 @@ def index_folder(
     return _process_groups(_scan(Path(folder)), make_previews=make_previews, progress=progress)
 
 
-def import_c4d_files(c4d_paths: list[Path], *, progress: ProgressCb | None = None) -> list[Path]:
-    """Importe des .c4d DANS la bibliothèque : copie le .c4d natif sous
-    <DATA_DIR>/sources/<stem>/ et exporte FBX + OBJ à côté (via c4dpy). Le trio
-    (c4d + fbx + obj) forme un volume multi-formats. Renvoie les dossiers créés.
-
-    Nécessite Cinema 4D (c4dpy). Une erreur sur un fichier n'interrompt pas les
-    autres (l'erreur est propagée si AUCUN n'a abouti)."""
-    from aclib.core.conversion import c4d as c4dconv
-
+def import_to_library(files: list[Path], *, progress: ProgressCb | None = None) -> list[Path]:
+    """Copie des fichiers sources déposés DANS la bibliothèque, sous
+    <DATA_DIR>/sources/<stem>/. Regroupe par nom (fbx + obj de même nom = un
+    volume multi-formats). AUCUNE conversion de format (le fbx reste fbx, l'obj
+    reste obj) ; l'aperçu glb est généré à l'indexation. Renvoie les dossiers
+    créés (à indexer)."""
     base = config.DATA_DIR / "sources"
-    dests: list[Path] = []
-    last_err: Exception | None = None
-    total = len(c4d_paths)
-    for i, src in enumerate(c4d_paths, start=1):
+    dests: dict[str, Path] = {}
+    total = len(files)
+    for i, src in enumerate(files, start=1):
         if progress:
-            progress(f"Cinema 4D : export {src.stem} (peut prendre 1-2 min)…", i, total)
+            progress(f"Import {src.name}", i, total)
+        dest = base / src.stem
+        dest.mkdir(parents=True, exist_ok=True)
+        target = dest / src.name
         try:
-            dest = base / src.stem
-            dest.mkdir(parents=True, exist_ok=True)
-            native = dest / src.name
-            if Path(src).resolve() != native.resolve():
-                shutil.copy2(src, native)              # garde le .c4d natif
-            c4dconv.export_exchange(native, dest)      # écrit fbx + obj à côté
-            dests.append(dest)
-        except Exception as exc:  # noqa: BLE001 — on continue les autres .c4d
-            last_err = exc
-    if not dests and last_err is not None:
-        raise last_err
-    return dests
+            if Path(src).resolve() != target.resolve():
+                shutil.copy2(src, target)
+        except OSError:
+            continue
+        dests[str(dest)] = dest
+    return list(dests.values())
 
 
 def index_paths(
@@ -190,33 +185,33 @@ def index_paths(
     make_previews: bool = True,
     progress: ProgressCb | None = None,
     force: bool = False,
-    materialize_c4d: bool = False,
+    materialize: bool = False,
 ) -> dict[str, int]:
     """Indexe une liste de chemins (fichiers ET/OU dossiers) — pour le
     glisser-déposer. Les dossiers sont parcourus en récursif ; les fichiers
     isolés sont regroupés tels quels par (dossier, nom).
 
-    force=True : régénère les aperçus même s'ils existent déjà (re-conversion
-    glb avec fix_normals + re-rendu miniature).
+    force=True : régénère les aperçus même s'ils existent déjà.
 
-    materialize_c4d=True : un .c4d isolé déposé est IMPORTÉ dans la bibliothèque
-    (copie native + export FBX/OBJ) avant indexation (cf. import_c4d_files).
+    materialize=True : les fichiers sources déposés (fbx, obj…) sont COPIÉS dans
+    la bibliothèque (<DATA_DIR>/sources/<stem>/) avant indexation, puis l'aperçu
+    est généré (cf. import_to_library). Utilisé par le glisser-déposer.
     """
     groups: dict[tuple[str, str], list[Path]] = defaultdict(list)
     loose: list[Path] = []
-    c4d_loose: list[Path] = []
+    to_import: list[Path] = []
     for t in targets:
         p = Path(t)
         if p.is_dir():
             for k, v in _scan(p).items():
                 groups[k].extend(v)
         elif p.is_file():
-            if materialize_c4d and p.suffix.lower() == ".c4d":
-                c4d_loose.append(p)
+            if materialize and _accept(p):
+                to_import.append(p)
             else:
                 loose.append(p)
-    # import des .c4d déposés -> dossiers sources/<stem> (c4d + fbx + obj)
-    for dest in import_c4d_files(c4d_loose, progress=progress):
+    # fichiers déposés -> copiés dans la biblio (sources/<stem>) puis indexés
+    for dest in import_to_library(to_import, progress=progress):
         for k, v in _scan(dest).items():
             groups[k].extend(v)
     for k, v in _groups_from_files(loose).items():
