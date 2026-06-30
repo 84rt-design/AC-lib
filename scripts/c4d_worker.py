@@ -32,30 +32,47 @@ except ImportError:  # pragma: no cover
     raise SystemExit(2)
 
 
-# Id d'export FBX. Stable, mais à confirmer selon la version (Plugins > Save As).
+# Ids d'export. Stables, mais à confirmer selon la version (Plugins > Save As).
 FORMAT_FBX_EXPORT = getattr(c4d, "FORMAT_FBX_EXPORT", 1026370)
+# Deux exportateurs OBJ existent selon la version ; on tente le récent puis l'ancien.
+FORMAT_OBJ2_EXPORT = getattr(c4d, "FORMAT_OBJ2EXPORT", 1030178)
+FORMAT_OBJ_EXPORT = getattr(c4d, "FORMAT_OBJEXPORT", 1019572)
 
 
-def export_fbx(source: Path, out_dir: Path) -> Path:
+def _load(source: Path):
     doc = documents.LoadDocument(
         str(source),
         c4d.SCENEFILTER_OBJECTS | c4d.SCENEFILTER_MATERIALS,
     )
     if doc is None:
         raise RuntimeError(f"LoadDocument a échoué : {source}")
+    return doc
 
+
+def _save_as(doc, dst: Path, fmt: int) -> bool:
+    return bool(documents.SaveDocument(
+        doc, str(dst), c4d.SAVEDOCUMENTFLAGS_DONTADDTORECENTLIST, fmt,
+    ))
+
+
+def export_fbx(source: Path, out_dir: Path) -> Path:
+    doc = _load(source)
     out_dir.mkdir(parents=True, exist_ok=True)
     fbx = out_dir / f"{source.stem}.fbx"
-
-    ok = documents.SaveDocument(
-        doc,
-        str(fbx),
-        c4d.SAVEDOCUMENTFLAGS_DONTADDTORECENTLIST,
-        FORMAT_FBX_EXPORT,
-    )
-    if not ok or not fbx.exists():
+    if not _save_as(doc, fbx, FORMAT_FBX_EXPORT) or not fbx.exists():
         raise RuntimeError(f"Export FBX échoué : {fbx}")
     return fbx
+
+
+def export_obj(source: Path, out_dir: Path) -> Path:
+    doc = _load(source)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    obj = out_dir / f"{source.stem}.obj"
+    # tente l'exportateur OBJ récent puis l'ancien
+    if not (_save_as(doc, obj, FORMAT_OBJ2_EXPORT) and obj.exists()):
+        if not (_save_as(doc, obj, FORMAT_OBJ_EXPORT) and obj.exists()):
+            raise RuntimeError(f"Export OBJ échoué : {obj}")
+    return obj
 
 
 def main() -> int:
@@ -63,15 +80,22 @@ def main() -> int:
     ap.add_argument("--source", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--thumb-size", type=int, default=512)  # réservé (rendu natif futur)
+    # --exchange : exporte FBX + OBJ (gardés dans --out) pour archivage dans la
+    # bibliothèque. Sans le flag : FBX seul (pipeline d'aperçu).
+    ap.add_argument("--exchange", action="store_true")
     args = ap.parse_args()
 
+    src, out = Path(args.source), Path(args.out)
     try:
-        fbx = export_fbx(Path(args.source), Path(args.out))
+        fbx = export_fbx(src, out)
+        result = {"ok": True, "fbx": str(fbx)}
+        if args.exchange:
+            result["obj"] = str(export_obj(src, out))
     except Exception as exc:  # noqa: BLE001
         print(json.dumps({"ok": False, "error": str(exc)}))
         return 1
 
-    print(json.dumps({"ok": True, "fbx": str(fbx)}))
+    print(json.dumps(result))
     return 0
 
 

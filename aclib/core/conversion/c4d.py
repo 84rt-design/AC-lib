@@ -76,3 +76,36 @@ def convert(source: Path, out_dir: Path, thumb_size: int = 512, out_name: str | 
 
     result.message = f"C4D via c4dpy -> {result.message}"
     return result
+
+
+def export_exchange(source: Path, out_dir: Path) -> dict[str, Path]:
+    """Exporte le .c4d en FBX + OBJ DANS out_dir (gardés, pour archivage dans la
+    bibliothèque). Renvoie {'fbx': Path, 'obj': Path}. Nécessite c4dpy."""
+    if C4DPY is None:
+        raise ConversionError(
+            "c4dpy introuvable : impossible d'exporter FBX/OBJ depuis un .c4d. "
+            "Installer Cinema 4D et exposer c4dpy dans le PATH "
+            "(ou éditer C4DPY dans aclib/core/conversion/c4d.py)."
+        )
+    out_dir.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        C4DPY, str(_WORKER),
+        "--source", str(source),
+        "--out", str(out_dir),
+        "--exchange",
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise ConversionError(
+            f"c4dpy a échoué : {proc.stderr.strip() or proc.stdout.strip()}"
+        )
+    try:
+        payload = json.loads(proc.stdout.strip().splitlines()[-1])
+    except (json.JSONDecodeError, IndexError) as exc:
+        raise ConversionError(f"Sortie worker illisible : {proc.stdout!r}") from exc
+    if not payload.get("ok"):
+        raise ConversionError(f"Worker C4D : {payload.get('error', 'inconnu')}")
+    out = {"fbx": Path(payload["fbx"])}
+    if payload.get("obj"):
+        out["obj"] = Path(payload["obj"])
+    return out

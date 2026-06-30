@@ -518,7 +518,9 @@ class ManagerWindow(QMainWindow):
         paths_ = [u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile()]
         paths_ = [p for p in paths_ if p]
         if paths_:
-            self._run_index(paths_)
+            # un .c4d déposé est IMPORTÉ dans la biblio (copie native + export
+            # FBX/OBJ via c4dpy) puis indexé.
+            self._run_index(paths_, materialize_c4d=True)
 
     # ============================================================ CATÉGORIES
     def _reload_categories(self) -> None:
@@ -934,12 +936,14 @@ class ManagerWindow(QMainWindow):
         if folder:
             self._run_index([folder])
 
-    def _run_index(self, targets: list[str], force: bool = False) -> None:
+    def _run_index(self, targets: list[str], force: bool = False,
+                   materialize_c4d: bool = False) -> None:
         self._remember_dirs(targets)
         self.btn_folder.setEnabled(False); self.btn_refresh.setEnabled(False)
         self.btn_regen.setEnabled(False)
         self.progress.setVisible(True); self.progress.setValue(0)
-        self._worker = IndexWorker(targets, make_previews=True, force=force)
+        self._worker = IndexWorker(targets, make_previews=True, force=force,
+                                   materialize_c4d=materialize_c4d)
         self._worker.progress.connect(self._on_progress)
         self._worker.done.connect(self._on_index_done)
         self._worker.failed.connect(self._on_index_failed)

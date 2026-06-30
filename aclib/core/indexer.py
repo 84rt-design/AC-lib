@@ -12,6 +12,7 @@ complétés ensuite dans le Manager.
 from __future__ import annotations
 
 import hashlib
+import shutil
 from collections import defaultdict
 from collections.abc import Callable, Iterable
 from pathlib import Path
@@ -152,12 +153,44 @@ def index_folder(
     return _process_groups(_scan(Path(folder)), make_previews=make_previews, progress=progress)
 
 
+def import_c4d_files(c4d_paths: list[Path], *, progress: ProgressCb | None = None) -> list[Path]:
+    """Importe des .c4d DANS la bibliothèque : copie le .c4d natif sous
+    <DATA_DIR>/sources/<stem>/ et exporte FBX + OBJ à côté (via c4dpy). Le trio
+    (c4d + fbx + obj) forme un volume multi-formats. Renvoie les dossiers créés.
+
+    Nécessite Cinema 4D (c4dpy). Une erreur sur un fichier n'interrompt pas les
+    autres (l'erreur est propagée si AUCUN n'a abouti)."""
+    from aclib.core.conversion import c4d as c4dconv
+
+    base = config.DATA_DIR / "sources"
+    dests: list[Path] = []
+    last_err: Exception | None = None
+    total = len(c4d_paths)
+    for i, src in enumerate(c4d_paths, start=1):
+        if progress:
+            progress(f"Export C4D {src.stem}", i, total)
+        try:
+            dest = base / src.stem
+            dest.mkdir(parents=True, exist_ok=True)
+            native = dest / src.name
+            if Path(src).resolve() != native.resolve():
+                shutil.copy2(src, native)              # garde le .c4d natif
+            c4dconv.export_exchange(native, dest)      # écrit fbx + obj à côté
+            dests.append(dest)
+        except Exception as exc:  # noqa: BLE001 — on continue les autres .c4d
+            last_err = exc
+    if not dests and last_err is not None:
+        raise last_err
+    return dests
+
+
 def index_paths(
     targets: Iterable[str | Path],
     *,
     make_previews: bool = True,
     progress: ProgressCb | None = None,
     force: bool = False,
+    materialize_c4d: bool = False,
 ) -> dict[str, int]:
     """Indexe une liste de chemins (fichiers ET/OU dossiers) — pour le
     glisser-déposer. Les dossiers sont parcourus en récursif ; les fichiers
@@ -165,16 +198,27 @@ def index_paths(
 
     force=True : régénère les aperçus même s'ils existent déjà (re-conversion
     glb avec fix_normals + re-rendu miniature).
+
+    materialize_c4d=True : un .c4d isolé déposé est IMPORTÉ dans la bibliothèque
+    (copie native + export FBX/OBJ) avant indexation (cf. import_c4d_files).
     """
     groups: dict[tuple[str, str], list[Path]] = defaultdict(list)
     loose: list[Path] = []
+    c4d_loose: list[Path] = []
     for t in targets:
         p = Path(t)
         if p.is_dir():
             for k, v in _scan(p).items():
                 groups[k].extend(v)
         elif p.is_file():
-            loose.append(p)
+            if materialize_c4d and p.suffix.lower() == ".c4d":
+                c4d_loose.append(p)
+            else:
+                loose.append(p)
+    # import des .c4d déposés -> dossiers sources/<stem> (c4d + fbx + obj)
+    for dest in import_c4d_files(c4d_loose, progress=progress):
+        for k, v in _scan(dest).items():
+            groups[k].extend(v)
     for k, v in _groups_from_files(loose).items():
         groups[k].extend(v)
     return _process_groups(groups, make_previews=make_previews, progress=progress, force=force)
