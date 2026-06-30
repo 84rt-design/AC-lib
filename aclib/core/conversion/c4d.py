@@ -37,6 +37,31 @@ _C4DPY_HELP = (
 )
 
 
+# Délai max d'un appel c4dpy (s). Cinema 4D headless peut être lent au 1er
+# lancement ; au-delà on considère un blocage (ex. dialogue licence) et on
+# rend la main avec une erreur plutôt que de geler le Manager.
+_C4DPY_TIMEOUT = 300
+
+
+def _run_c4dpy(cmd: list[str]) -> dict:
+    """Lance c4dpy avec timeout, renvoie le payload JSON du worker."""
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=_C4DPY_TIMEOUT)
+    except subprocess.TimeoutExpired as exc:
+        raise ConversionError(
+            f"c4dpy n'a pas répondu en {_C4DPY_TIMEOUT}s (Cinema 4D bloqué ? "
+            "dialogue licence ? 1er lancement très lent ?). Import annulé."
+        ) from exc
+    if proc.returncode != 0:
+        raise ConversionError(
+            f"c4dpy a échoué : {proc.stderr.strip() or proc.stdout.strip()}"
+        )
+    try:
+        return json.loads(proc.stdout.strip().splitlines()[-1])
+    except (json.JSONDecodeError, IndexError) as exc:
+        raise ConversionError(f"Sortie worker illisible : {proc.stdout!r}") from exc
+
+
 def c4dpy_path() -> str | None:
     """Chemin de l'exécutable c4dpy : réglage utilisateur (Options) puis PATH."""
     try:
@@ -65,17 +90,7 @@ def convert(source: Path, out_dir: Path, thumb_size: int = 512, out_name: str | 
             "--out", tmp,
             "--thumb-size", str(thumb_size),
         ]
-        proc = subprocess.run(cmd, capture_output=True, text=True)
-        if proc.returncode != 0:
-            raise ConversionError(
-                f"c4dpy a échoué : {proc.stderr.strip() or proc.stdout.strip()}"
-            )
-
-        try:
-            payload = json.loads(proc.stdout.strip().splitlines()[-1])
-        except (json.JSONDecodeError, IndexError) as exc:
-            raise ConversionError(f"Sortie worker illisible : {proc.stdout!r}") from exc
-
+        payload = _run_c4dpy(cmd)
         if not payload.get("ok"):
             raise ConversionError(f"Worker C4D : {payload.get('error', 'inconnu')}")
 
@@ -103,15 +118,7 @@ def export_exchange(source: Path, out_dir: Path) -> dict[str, Path]:
         "--out", str(out_dir),
         "--exchange",
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    if proc.returncode != 0:
-        raise ConversionError(
-            f"c4dpy a échoué : {proc.stderr.strip() or proc.stdout.strip()}"
-        )
-    try:
-        payload = json.loads(proc.stdout.strip().splitlines()[-1])
-    except (json.JSONDecodeError, IndexError) as exc:
-        raise ConversionError(f"Sortie worker illisible : {proc.stdout!r}") from exc
+    payload = _run_c4dpy(cmd)
     if not payload.get("ok"):
         raise ConversionError(f"Worker C4D : {payload.get('error', 'inconnu')}")
     out = {"fbx": Path(payload["fbx"])}

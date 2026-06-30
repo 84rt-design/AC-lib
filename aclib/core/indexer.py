@@ -168,7 +168,7 @@ def import_c4d_files(c4d_paths: list[Path], *, progress: ProgressCb | None = Non
     total = len(c4d_paths)
     for i, src in enumerate(c4d_paths, start=1):
         if progress:
-            progress(f"Export C4D {src.stem}", i, total)
+            progress(f"Cinema 4D : export {src.stem} (peut prendre 1-2 min)…", i, total)
         try:
             dest = base / src.stem
             dest.mkdir(parents=True, exist_ok=True)
