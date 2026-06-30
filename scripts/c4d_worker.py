@@ -87,13 +87,19 @@ def main() -> int:
 
     src, out = Path(args.source), Path(args.out)
     try:
-        fbx = export_fbx(src, out)
-        result = {"ok": True, "fbx": str(fbx)}
-        if args.exchange:
-            result["obj"] = str(export_obj(src, out))
+        fbx = export_fbx(src, out)  # FBX = indispensable (aperçu + échange)
     except Exception as exc:  # noqa: BLE001
         print(json.dumps({"ok": False, "error": str(exc)}))
         return 1
+
+    result = {"ok": True, "fbx": str(fbx)}
+    if args.exchange:
+        # OBJ best-effort : l'id d'export varie selon la version C4D. En cas
+        # d'échec on n'interrompt PAS l'import (c4d + fbx suffisent).
+        try:
+            result["obj"] = str(export_obj(src, out))
+        except Exception as exc:  # noqa: BLE001
+            result["obj_error"] = str(exc)
 
     print(json.dumps(result))
     return 0
